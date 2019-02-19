@@ -59,6 +59,15 @@ class InfiniteSites(object):
         self.alphabet = alphabet
 
 
+class MutationMap(object):
+    """
+    TODO document
+    """
+    def __init__(self, position, rate):
+        self.position = position
+        self.rate = rate
+
+
 def mutate(
         tree_sequence, rate=None, random_seed=None, model=None, keep=False,
         start_time=None, end_time=None):
