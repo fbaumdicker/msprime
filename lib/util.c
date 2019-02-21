@@ -145,6 +145,18 @@ msp_strerror_internal(int err)
         case MSP_ERR_UNSUPPORTED_OPERATION:
             ret = "Current simulation configuration is not supported.";
             break;
+        case MSP_ERR_BAD_MUTATION_MAP_SIZE:
+            ret = "Bad mutation map size; must be >= 1.";
+            break;
+        case MSP_ERR_BAD_MUTATION_MAP_RATE:
+            ret = "Bad mutation rate; must be >= 0.";
+            break;
+        case MSP_ERR_BAD_MUTATION_MAP_POSITION:
+            ret = "Bad mutation map; must have pos[0] = 0 and pos[j] < pos[j + 1]";
+            break;
+        case MSP_ERR_INCOMPATIBLE_MUTATION_MAP:
+            ret = "Mutation map is not compatible with specified tables.";
+            break;
 
         default:
             ret = "Error occurred generating error string. Please file a bug "

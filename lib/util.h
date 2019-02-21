@@ -70,6 +70,10 @@
 #define MSP_ERR_BAD_TRAJECTORY_ALLELE_FREQUENCY                     -33
 #define MSP_ERR_EMPTY_TRAJECTORY                                    -34
 #define MSP_ERR_UNSUPPORTED_OPERATION                               -35
+#define MSP_ERR_BAD_MUTATION_MAP_SIZE                               -36
+#define MSP_ERR_BAD_MUTATION_MAP_POSITION                           -37
+#define MSP_ERR_BAD_MUTATION_MAP_RATE                               -38
+#define MSP_ERR_INCOMPATIBLE_MUTATION_MAP                           -39
 
 /* This bit is 0 for any errors originating from tskit */
 #define MSP_TSK_ERR_BIT 13

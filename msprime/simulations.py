@@ -428,7 +428,7 @@ def simulate(
                 "Cannot specify mutation rate combined with a non-zero "
                 "start_time. Please use msprime.mutate on the returned "
                 "tree sequence instead")
-        mutation_generator = MutationGenerator(rng, mutation_rate)
+        mutation_generator = MutationGenerator(rng, position=[0], rate=[mutation_rate])
     if num_replicates is None:
         return next(_replicate_generator(
             sim, mutation_generator, 1, provenance_dict, __tmp_max_time))

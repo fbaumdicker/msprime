@@ -280,10 +280,15 @@ typedef struct {
     gsl_rng *rng;
     double start_time;
     double end_time;
-    double mutation_rate;
     avl_tree_t sites;
     tsk_blkalloc_t allocator;
+    struct {
+        size_t size;
+        double *position;
+        double *rate;
+    } map;
 } mutgen_t;
+
 
 int msp_alloc(msp_t *self,
         size_t num_samples, sample_t *samples,
@@ -385,8 +390,9 @@ int recomb_map_get_rates(recomb_map_t *self, double *rates);
 
 void recomb_map_print_state(recomb_map_t *self, FILE *out);
 
-int mutgen_alloc(mutgen_t *self, double mutation_rate, gsl_rng *rng,
-        int alphabet, size_t mutation_block_size);
+int mutgen_alloc(mutgen_t *self, gsl_rng *rng, int alphabet, size_t mutation_block_size);
+int mutgen_set_rate(mutgen_t *self, double rate);
+int mutgen_set_map(mutgen_t *self, size_t size, double *position, double *rate);
 int mutgen_set_time_interval(mutgen_t *self, double start_time, double end_time);
 int mutgen_free(mutgen_t *self);
 int mutgen_generate(mutgen_t *self, tsk_table_collection_t *tables, int flags);

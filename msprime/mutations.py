@@ -160,9 +160,10 @@ def mutate(
 
     if start_time > end_time:
         raise ValueError("start_time must be <= end_time")
-
+    position = [0]
+    rate = [rate]
     mutation_generator = _msprime.MutationGenerator(
-        rng, rate, alphabet=alphabet, start_time=start_time, end_time=end_time)
+        rng, position, rate, alphabet=alphabet, start_time=start_time, end_time=end_time)
     lwt = _msprime.LightweightTableCollection()
     lwt.fromdict(tables.asdict())
     mutation_generator.generate(lwt, keep=keep)
