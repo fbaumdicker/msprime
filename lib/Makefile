@@ -1,11 +1,11 @@
 CC=gcc
-EXTRA_CFLAGS=-std=c99 -pedantic -Werror -Wall -W \
+EXTRA_CFLAGS=-std=c99 -pedantic -Werror -Wall -W -O0 \
   -Wmissing-prototypes -Wstrict-prototypes \
   -Wconversion -Wshadow -Wpointer-arith \
   -Wcast-align -Wcast-qual \
   -Wwrite-strings -Wnested-externs \
   -fshort-enums -fno-common -Dinline= 
-CFLAGS=-g -O2 -Itskit/c -Itskit/c/kastore/c
+CFLAGS=-g -O0 -Itskit/c -Itskit/c/kastore/c
 LDFLAGS=-lgsl -lgslcblas -lm 
 
 HEADERS=msprime.h util.h 
