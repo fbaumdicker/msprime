@@ -233,6 +233,7 @@ typedef struct _msp_t {
     avl_tree_t overlap_counts;
     /* We keep an independent Fenwick tree for each label */
     fenwick_t *links;
+    gc_fenwick_t *gc_links;
     /* memory management */
     object_heap_t avl_node_heap;
     object_heap_t node_mapping_heap;

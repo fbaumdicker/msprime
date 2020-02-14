@@ -30,6 +30,14 @@ typedef struct {
     int64_t *values;
 } fenwick_t;
 
+typedef struct {
+    size_t size;
+    size_t log_size;
+    double prob_continue;
+    double *gc_tree;
+    int64_t *values;
+} gc_fenwick_t;
+
 
 int fenwick_alloc(fenwick_t *, size_t);
 int fenwick_expand(fenwick_t *, size_t);
@@ -41,5 +49,16 @@ int64_t fenwick_get_cumulative_sum(fenwick_t *, size_t);
 int64_t fenwick_get_value(fenwick_t *, size_t);
 size_t fenwick_find(fenwick_t *, int64_t);
 size_t fenwick_get_size(fenwick_t *);
+
+int gc_fenwick_alloc(gc_fenwick_t *, size_t);
+int gc_fenwick_expand(gc_fenwick_t *, size_t);
+int gc_fenwick_free(gc_fenwick_t *);
+double gc_fenwick_get_total_cleft(gc_fenwick_t *);
+void gc_fenwick_increment(gc_fenwick_t *, size_t, int64_t);
+void gc_fenwick_set_value(gc_fenwick_t *, size_t, int64_t);
+double gc_fenwick_get_cumulative_sum(gc_fenwick_t *, size_t);
+int64_t gc_fenwick_get_value(gc_fenwick_t *, size_t);
+size_t gc_fenwick_find(gc_fenwick_t *, double);
+size_t gc_fenwick_get_size(gc_fenwick_t *);
 
 #endif /*__FENWICK_H__*/

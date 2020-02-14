@@ -28,6 +28,8 @@
 #include <stdlib.h>
 #include <assert.h>
 
+#include <math.h>
+
 #include "util.h"
 #include "fenwick.h"
 
@@ -197,6 +199,219 @@ fenwick_find(fenwick_t *self, int64_t sum)
         if (s > self->tree[k]) {
             j = k;
             s -= self->tree[j];
+        }
+        half >>= 1;
+    }
+    return j + 1;
+}
+
+
+
+
+
+
+// the same function adapted for gene conversion
+
+
+
+
+static void
+gc_fenwick_set_log_size(gc_fenwick_t *self)
+{
+    size_t u = self->size;
+
+    while (u != 0) {
+        self->log_size = u;
+        u -= (u & -u);
+    }
+}
+
+static int MSP_WARN_UNUSED
+gc_fenwick_alloc_buffers(gc_fenwick_t *self)
+{
+    int ret = -1;
+
+    self->gc_tree = NULL;
+    self->values = NULL;
+    self->gc_tree = calloc((1 + self->size), sizeof(double));
+    if (self->gc_tree == NULL) {
+        ret = MSP_ERR_NO_MEMORY;
+        goto out;
+    }
+    self->values = calloc((1 + self->size), sizeof(int64_t));
+    if (self->values == NULL) {
+        ret = MSP_ERR_NO_MEMORY;
+        goto out;
+    }
+    gc_fenwick_set_log_size(self);
+    ret = 0;
+out:
+    return ret;
+}
+
+int MSP_WARN_UNUSED
+gc_fenwick_alloc(gc_fenwick_t *self, size_t initial_size)
+{
+    self->size = initial_size;
+    return gc_fenwick_alloc_buffers(self);
+}
+
+int MSP_WARN_UNUSED
+gc_fenwick_expand(gc_fenwick_t *self, size_t increment)
+{
+    int ret = MSP_ERR_NO_MEMORY;
+    size_t j, n, k;
+    void *p;
+
+    p = realloc(self->gc_tree, (1 + self->size + increment) * sizeof(double));
+    if (p == NULL) {
+        goto out;
+    }
+    self->gc_tree = p;
+    p = realloc(self->values, (1 + self->size + increment) * sizeof(int64_t));
+    if (p == NULL) {
+        goto out;
+    }
+    self->values = p;
+
+    self->size += increment;
+    gc_fenwick_set_log_size(self);
+    for (j = self->size - increment + 1; j <= self->size; j++) {
+        self->values[j] = 0;
+        self->gc_tree[j] = 0;
+        n = j;
+        k = 1;
+//         TODO Do I need to change this for gc? I guess not!
+        while (n % 2 == 0) {
+            self->gc_tree[j] += self->gc_tree[j - k];
+            k *= 2;
+            n >>= 1;
+        }
+    }
+    ret = 0;
+out:
+    return ret;
+}
+
+int
+gc_fenwick_free(gc_fenwick_t *self)
+{
+    int ret = -1;
+
+    if (self->gc_tree != NULL) {
+        free(self->gc_tree);
+        self->gc_tree = NULL;
+    }
+    if (self->values != NULL) {
+        free(self->values);
+        self->values = NULL;
+    }
+    ret = 0;
+    return ret;
+}
+
+size_t
+gc_fenwick_get_size(gc_fenwick_t *self)
+{
+    return self->size;
+}
+
+double
+gc_fenwick_get_total_cleft(gc_fenwick_t *self)
+{
+    return gc_fenwick_get_cumulative_sum(self, self->size);
+}
+
+void
+gc_fenwick_increment(gc_fenwick_t *self, size_t index, int64_t value)
+{
+    size_t j = index;
+    int64_t z;
+    double old, increment;
+    
+
+    assert(0 < index && index <= self->size);
+    z = self->values[index];
+    if(z == 0){
+        old = 0;
+    }
+    else if(z > 0){
+        old = 1 - pow(self->prob_continue, z);
+    }
+    if (z < 0 ){printf("FATAL: z < 0");}
+    
+//     printf("%ld\t",j);
+    if( z + value > 0){
+//         printf("%f\t",self->gc_tree[j]);
+//         printf("H\t");
+//         printf("%f\t",self->prob_continue);
+//         printf("%f\t", 1 - pow(self->prob_continue, z ));
+//         printf("-->");
+//         printf("%f\t", 1 - pow(self->prob_continue, z + value ));
+        increment = (1 - pow(self->prob_continue, z + value ) ) - old ;
+    }
+    else{
+//         printf("F");
+        increment = -old ;
+    }
+//     printf("%ld\t%ld\t%f\n",value,z,increment);
+    self->values[index] += value;
+    while (j <= self->size) {
+//         TODO the increment is computed above
+        self->gc_tree[j] += increment;
+        j += (j & -j);
+    }
+}
+
+void
+gc_fenwick_set_value(gc_fenwick_t *self, size_t index, int64_t value)
+{
+    int64_t v = value - self->values[index];
+
+    gc_fenwick_increment(self, index, v);
+}
+
+// TODO this needs to return a double
+double
+gc_fenwick_get_cumulative_sum(gc_fenwick_t *self, size_t index)
+{
+    double ret = 0;
+    size_t j = index;
+
+    assert(0 < index && index <= self->size);
+    while (j > 0) {
+        ret += self->gc_tree[j];
+        j -= (j & -j);
+    }
+    return ret;
+}
+
+int64_t
+gc_fenwick_get_value(gc_fenwick_t *self, size_t index)
+{
+    assert(0 < index && index <= self->size);
+    return self->values[index];
+}
+
+
+// TODO this needs to be modified (maybe only slightly)
+size_t
+gc_fenwick_find(gc_fenwick_t *self, double r_value)
+{
+    size_t j = 0;
+    size_t k;
+    double s = r_value;
+    size_t half = self->log_size;
+
+    while (half > 0) {
+        /* Skip non-existent entries */
+        while (j + half > self->size) {
+            half >>= 1;
+        }
+        k = j + half;
+        if (s > self->gc_tree[k]) {
+            j = k;
+            s -= self->gc_tree[j];
         }
         half >>= 1;
     }

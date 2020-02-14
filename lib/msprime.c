@@ -182,6 +182,7 @@ msp_set_dimensions(msp_t *self, size_t num_populations, size_t num_labels)
     msp_safe_free(self->migration_matrix);
     msp_safe_free(self->num_migration_events);
     msp_safe_free(self->links);
+    msp_safe_free(self->gc_links);
     msp_safe_free(self->segment_heap);
 
     self->num_populations = (uint32_t) num_populations;
@@ -195,6 +196,7 @@ msp_set_dimensions(msp_t *self, size_t num_populations, size_t num_labels)
     self->initial_populations = calloc(num_populations, sizeof(population_t));
     self->populations = calloc(num_populations, sizeof(population_t));
     self->links = calloc(self->num_labels, sizeof(fenwick_t));
+    self->gc_links = calloc(self->num_labels, sizeof(gc_fenwick_t));
     self->segment_heap = calloc(self->num_labels, sizeof(object_heap_t));
     if (self->migration_matrix == NULL
             || self->initial_migration_matrix == NULL
@@ -202,6 +204,7 @@ msp_set_dimensions(msp_t *self, size_t num_populations, size_t num_labels)
             || self->initial_populations == NULL
             || self->populations == NULL
             || self->links == NULL
+            || self->gc_links == NULL
             || self->segment_heap == NULL) {
         ret = MSP_ERR_NO_MEMORY;
         goto out;
@@ -255,6 +258,10 @@ msp_set_gene_conversion_rate(msp_t *self, double rate, double track_length)
      * so that it's in model units. */
     self->gene_conversion_rate = rate;
     self->gene_conversion_track_length = genetic_track_length;
+//     FIXME this one might be missing a gc_links[label]
+    printf("WIRD GEMACHT\n");
+    self->gc_links->prob_continue = (track_length - 1) / track_length;
+    printf("%f",self->gc_links->prob_continue);
 out:
     return ret;
 }
@@ -383,6 +390,9 @@ msp_alloc_segment(msp_t *self, uint32_t left, uint32_t right, node_id_t value,
             goto out;
         }
         if (fenwick_expand(&self->links[label], self->segment_block_size) != 0) {
+            goto out;
+        }
+        if (gc_fenwick_expand(&self->gc_links[label], self->segment_block_size) != 0) {
             goto out;
         }
     }
@@ -532,6 +542,10 @@ msp_alloc_memory_blocks(msp_t *self)
         if (ret != 0) {
             goto out;
         }
+        ret = gc_fenwick_alloc(&self->gc_links[j], self->segment_block_size);
+        if (ret != 0) {
+            goto out;
+        }
     }
     /* Allocate the edge records */
     self->num_buffered_edges = 0;
@@ -575,6 +589,9 @@ msp_free(msp_t *self)
         if (self->links != NULL) {
             fenwick_free(&self->links[j]);
         }
+        if (self->gc_links != NULL) {
+            gc_fenwick_free(&self->gc_links[j]);
+        }
         if (self->segment_heap != NULL) {
             object_heap_free(&self->segment_heap[j]);
         }
@@ -583,6 +600,7 @@ msp_free(msp_t *self)
         msp_safe_free(self->populations[j].ancestors);
     }
     msp_safe_free(self->links);
+    msp_safe_free(self->gc_links);
     msp_safe_free(self->segment_heap);
     msp_safe_free(self->initial_migration_matrix);
     msp_safe_free(self->migration_matrix);
@@ -666,6 +684,7 @@ msp_free_segment(msp_t *self, segment_t *seg)
 {
     object_heap_free_object(&self->segment_heap[seg->label], seg);
     fenwick_set_value(&self->links[seg->label], seg->id, 0);
+    gc_fenwick_set_value(&self->gc_links[seg->label], seg->id, 0);
 }
 
 static inline int MSP_WARN_UNUSED
@@ -957,6 +976,21 @@ msp_print_state(msp_t *self, FILE *out)
             u = msp_get_segment(self, j, (label_id_t) k);
             v = fenwick_get_value(&self->links[k], j);
             if (v != 0) {
+                fprintf(out, "tree: %ld" ,self->links->tree[u->id]);
+                fprintf(out, "\t%ld\ti=%d l=%d r=%d v=%d prev=%p next=%p\n", (long) v,
+                        (int) u->id, u->left, u->right,
+                        (int) u->value, (void *) u->prev, (void *) u->next);
+            }
+        }
+    }
+    fprintf(out, "GC Fenwick trees\n");
+    for (k = 0; k < self->num_labels; k++) {
+        fprintf(out, "=====\nLabel %d\n=====\n", k);
+        for (j = 1; j <= (uint32_t) gc_fenwick_get_size(&self->gc_links[k]); j++) {
+            u = msp_get_segment(self, j, (label_id_t) k);
+            v = gc_fenwick_get_value(&self->gc_links[k], j);
+            if (v != 0) {
+                fprintf(out, "gc_tree: %f", self->gc_links->gc_tree[u->id]);
                 fprintf(out, "\t%ld\ti=%d l=%d r=%d v=%d prev=%p next=%p\n", (long) v,
                         (int) u->id, u->left, u->right,
                         (int) u->value, (void *) u->prev, (void *) u->next);
@@ -1147,7 +1181,7 @@ msp_move_individual(msp_t *self, avl_node_t *node, avl_tree_t *source,
 {
     int ret = 0;
     segment_t *ind, *x, *y, *new_ind;
-    int64_t num_links;
+    int64_t num_links, num_gc_links;
 
     ind = (segment_t *) node->item;
     avl_unlink_node(source, node);
@@ -1191,6 +1225,8 @@ msp_move_individual(msp_t *self, avl_node_t *node, avl_tree_t *source,
             }
             num_links = fenwick_get_value(&self->links[x->label], x->id);
             fenwick_increment(&self->links[y->label], y->id, num_links);
+            num_gc_links = gc_fenwick_get_value(&self->gc_links[x->label], x->id);
+            gc_fenwick_increment(&self->gc_links[y->label], y->id, num_gc_links);
             msp_free_segment(self, x);
         }
     }
@@ -1314,6 +1350,7 @@ msp_defrag_segment_chain(msp_t *self, segment_t *z)
                 y->next->prev = x;
             }
             fenwick_increment(&self->links[x->label], x->id, y->right - y->left);
+            gc_fenwick_increment(&self->gc_links[x->label], x->id, y->right - y->left);
             msp_free_segment(self, y);
         }
         y = x;
@@ -1366,6 +1403,7 @@ msp_dtwf_recombine(msp_t *self, segment_t *x, segment_t **u, segment_t **v)
             x->next = NULL;
             x->right = (uint32_t) k;
             fenwick_increment(&self->links[x->label], x->id, k - z->right);
+            gc_fenwick_increment(&self->gc_links[x->label], x->id, k - z->right);
             assert(x->left < x->right);
             x = z;
             k = 1 + k + (int64_t) gsl_ran_exponential(self->rng, mu);
@@ -1385,6 +1423,7 @@ msp_dtwf_recombine(msp_t *self, segment_t *x, segment_t **u, segment_t **v)
             x = y;
             z = y;
             fenwick_set_value(&self->links[z->label], z->id, z->right - z->left - 1);
+            gc_fenwick_set_value(&self->gc_links[z->label], z->id, z->right - z->left - 1);
 
         } else {
             // Breakpoint in later segment
@@ -1409,6 +1448,9 @@ msp_recombination_event(msp_t *self, label_id_t label, segment_t **lhs, segment_
     segment_t *x, *y, *z, *lhs_tail;
     int64_t num_links = fenwick_get_total(&self->links[label]);
 
+//     printf("Before recombination:\t");
+//     printf("fenwk: %f\n",gc_fenwick_get_total_cleft(&self->gc_links[label]));
+    
     self->num_re_events++;
     /* We can't use the GSL integer generator here as the range is too large */
     l = 1 + (int64_t) (gsl_rng_uniform(self->rng) * (double) num_links);
@@ -1435,6 +1477,7 @@ msp_recombination_event(msp_t *self, label_id_t label, segment_t **lhs, segment_
         y->next = NULL;
         y->right = (uint32_t) k;
         fenwick_increment(&self->links[label], y->id, k - z->right);
+        gc_fenwick_increment(&self->gc_links[label], y->id, k - z->right);
         if (msp_has_breakpoint(self, (uint32_t) k)) {
             self->num_multiple_re_events++;
         } else {
@@ -1453,6 +1496,7 @@ msp_recombination_event(msp_t *self, label_id_t label, segment_t **lhs, segment_
         lhs_tail = x;
     }
     fenwick_set_value(&self->links[label], z->id, z->right - z->left - 1);
+    gc_fenwick_set_value(&self->gc_links[label], z->id, z->right - z->left - 1);
     ret = msp_insert_individual(self, z);
     if (ret != 0) {
         goto out;
@@ -1486,6 +1530,10 @@ msp_recombination_event(msp_t *self, label_id_t label, segment_t **lhs, segment_
         *lhs = x;
         *rhs = z;
     }
+    
+//     printf("After recombination:\t");
+//     printf("fenwk: %f\n",gc_fenwick_get_total_cleft(&self->gc_links[label]));
+    
 out:
     return ret;
 }
@@ -1499,12 +1547,14 @@ msp_cut_right_break(msp_t *self, segment_t *lhs_tail, segment_t *y, segment_t *n
     assert(lhs_tail != NULL);
     lhs_tail->next = new_segment;
     fenwick_set_value(&self->links[label], new_segment->id, new_segment->right - lhs_tail->right);
+    gc_fenwick_set_value(&self->gc_links[label], new_segment->id, new_segment->right - lhs_tail->right);
     if (y->next != NULL){
         y->next->prev = new_segment;
     }
     y->next = NULL;
     y->right = track_end;
     fenwick_increment(&self->links[label], y->id, (int64_t) track_end - (int64_t) new_segment->right);
+    gc_fenwick_increment(&self->gc_links[label], y->id, (int64_t) track_end - (int64_t) new_segment->right);
     if (!msp_has_breakpoint(self, (uint32_t) track_end)) {
         ret = msp_insert_breakpoint(self, (uint32_t) track_end);
         if (ret != 0) {
@@ -1577,7 +1627,9 @@ msp_gene_conversion_within_event(msp_t *self, label_id_t label)
             y->next = z2;
             y->right = (uint32_t) k;
             fenwick_set_value(&self->links[label], z2->id, z2->right - y->right);
+            gc_fenwick_set_value(&self->gc_links[label], z2->id, z2->right - y->right);
             fenwick_increment(&self->links[label], y->id, k - z2->right);
+            gc_fenwick_increment(&self->gc_links[label], y->id, k - z2->right);
             if (!msp_has_breakpoint(self, (uint32_t) k)) {
                 ret = msp_insert_breakpoint(self, (uint32_t) k);
                 if (ret != 0) {
@@ -1617,12 +1669,14 @@ msp_gene_conversion_within_event(msp_t *self, label_id_t label)
                 goto out;
             }
             fenwick_set_value(&self->links[label], z->id, z->right - z->left);
+            gc_fenwick_set_value(&self->gc_links[label], z->id, z->right - z->left);
             if (y->next != NULL) {
                 y->next->prev = z;
             }
             y->next = NULL;
             y->right = (uint32_t) k;
             fenwick_increment(&self->links[label], y->id, k - z->right);
+            gc_fenwick_increment(&self->gc_links[label], y->id, k - z->right);
             if (!msp_has_breakpoint(self, (uint32_t) k)) {
                 ret = msp_insert_breakpoint(self, (uint32_t) k);
                 if (ret != 0) {
@@ -1653,6 +1707,7 @@ msp_gene_conversion_within_event(msp_t *self, label_id_t label)
                 y2->prev->next = NULL;
                 y2->prev = lhs_tail;
                 fenwick_set_value(&self->links[label], y2->id, y2->right - lhs_tail->right);
+                gc_fenwick_set_value(&self->gc_links[label], y2->id, y2->right - lhs_tail->right);
             }
         }
     }
@@ -1660,6 +1715,7 @@ msp_gene_conversion_within_event(msp_t *self, label_id_t label)
     /* Update population */
     z->label = label;
     fenwick_set_value(&self->links[label], z->id, z->right - z->left - 1);
+    gc_fenwick_set_value(&self->gc_links[label], z->id, z->right - z->left - 1);
     ret = msp_insert_individual(self, z);
 out:
     return ret;
@@ -1669,6 +1725,7 @@ out:
  * Fenwick tree to implement it without iterating over the full population */
 /* TODO: what does 'cleft' mean? I'm not finding it very enlightening. We should
  * change this to something more meaningful here and in algorithms.py */
+ /* The corresponding function using a fenwick tree is gc_fenwick_get_total_cleft */ 
 static double
 msp_get_cleft_total(msp_t *self)
 {
@@ -1785,6 +1842,7 @@ msp_gene_conversion_left_event(msp_t *self, label_id_t label)
         y->next = NULL;
         y->right = (uint32_t) k;
         fenwick_increment(&self->links[label], y->id, k - (int64_t) z->right);
+        gc_fenwick_increment(&self->gc_links[label], y->id, k - (int64_t) z->right);
         if (!msp_has_breakpoint(self, (uint32_t) k)) {
             ret = msp_insert_breakpoint(self, (uint32_t) k);
             if (ret != 0) {
@@ -1799,6 +1857,7 @@ msp_gene_conversion_left_event(msp_t *self, label_id_t label)
     }
     z->label = label;
     fenwick_set_value(&self->links[label], z->id, z->right - z->left - 1);
+    gc_fenwick_set_value(&self->gc_links[label], z->id, z->right - z->left - 1);
     ret = msp_insert_individual(self, z);
 out:
     return ret;
@@ -1976,6 +2035,8 @@ msp_merge_two_ancestors(msp_t *self, population_id_t population_id, label_id_t l
                 }
                 fenwick_set_value(&self->links[label], alpha->id,
                         alpha->right - alpha->left - 1);
+                gc_fenwick_set_value(&self->gc_links[label], alpha->id,
+                        alpha->right - alpha->left - 1);
             } else {
                 if (self->store_full_arg) {
                     // we pre-empt the fact that values will be set equal later
@@ -1985,6 +2046,7 @@ msp_merge_two_ancestors(msp_t *self, population_id_t population_id, label_id_t l
                 }
                 z->next = alpha;
                 fenwick_set_value(&self->links[label], alpha->id, alpha->right - z->right);
+                gc_fenwick_set_value(&self->gc_links[label], alpha->id, alpha->right - z->right);
             }
             alpha->prev = z;
             z = alpha;
@@ -2191,6 +2253,8 @@ msp_merge_ancestors(msp_t *self, avl_tree_t *Q, population_id_t population_id,
                 }
                 fenwick_set_value(&self->links[label], alpha->id,
                         alpha->right - alpha->left - 1);
+                gc_fenwick_set_value(&self->gc_links[label], alpha->id,
+                        alpha->right - alpha->left - 1);
             } else {
                 if (self->store_full_arg) {
                     // we pre-empt the fact that values will be set equal later
@@ -2201,6 +2265,8 @@ msp_merge_ancestors(msp_t *self, avl_tree_t *Q, population_id_t population_id,
                 }
                 z->next = alpha;
                 fenwick_set_value(&self->links[label], alpha->id,
+                        alpha->right - z->right);
+                gc_fenwick_set_value(&self->gc_links[label], alpha->id,
                         alpha->right - z->right);
             }
             alpha->prev = z;
@@ -2314,6 +2380,7 @@ msp_insert_sample(msp_t *self, node_id_t sample, population_id_t population)
         goto out;
     }
     fenwick_set_value(&self->links[u->label], u->id, self->num_loci - 1);
+    gc_fenwick_set_value(&self->gc_links[u->label], u->id, self->num_loci - 1);
 out:
     return ret;
 }
@@ -2451,8 +2518,11 @@ msp_reset_from_ts(msp_t *self)
                 goto out;
             }
             fenwick_set_value(&self->links[label], seg->id, seg->right - seg->left - 1);
+            gc_fenwick_set_value(&self->gc_links[label], seg->id, seg->right - seg->left - 1);
             for (seg = seg->next; seg != NULL; seg = seg->next) {
                 fenwick_set_value(&self->links[label], seg->id,
+                        seg->right - seg->prev->right);
+                gc_fenwick_set_value(&self->gc_links[label], seg->id,
                         seg->right - seg->prev->right);
             }
         }
@@ -2842,6 +2912,11 @@ msp_run_coalescent(msp_t *self, double max_time, unsigned long max_events)
 
     gc_in_t_wait = DBL_MAX;
     gc_left_t_wait = DBL_MAX;
+    
+    self->gc_links->prob_continue = (self->gene_conversion_track_length - 1)/self->gene_conversion_track_length;
+    
+//     msp_print_state(self, stdout);
+    
 
     while (msp_get_num_ancestors(self) > 0) {
         if (events == max_events) {
@@ -2880,6 +2955,9 @@ msp_run_coalescent(msp_t *self, double max_time, unsigned long max_events)
                 gc_left_t_wait = gsl_ran_exponential(self->rng, 1.0 / lambda);
             }
         }
+        
+        printf("cleft: %f\t",msp_get_cleft_total(self));
+        printf("fenwk: %f\n",gc_fenwick_get_total_cleft(&self->gc_links[label]));
 
         /* Common ancestors */
         ca_t_wait = DBL_MAX;
@@ -2973,13 +3051,17 @@ msp_run_coalescent(msp_t *self, double max_time, unsigned long max_events)
             }
             self->time = t_temp;
             if (re_t_wait == t_wait) {
-                ret = msp_recombination_event(self, label, NULL, NULL);
+                printf("recombination\n");
+//                 ret = msp_recombination_event(self, label, NULL, NULL);
             } else if (gc_in_t_wait == t_wait) {
+                printf("conversion within\n");
                 ret = msp_gene_conversion_within_event(self, label);
             } else if (gc_left_t_wait == t_wait) {
-                ret = msp_gene_conversion_left_event(self, label);
+                printf("conversion left\n");
+//                 ret = msp_gene_conversion_left_event(self, label);
             } else if (ca_t_wait == t_wait) {
-                ret = self->common_ancestor_event(self, ca_pop_id, label);
+                printf("merge\n");
+//                 ret = self->common_ancestor_event(self, ca_pop_id, label);
                 if (ret == 1) {
                     /* The CA event has signalled that this event should be rejected */
                     /* TODO things are more complicated in the store_full_arg case
