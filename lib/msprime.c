@@ -3904,17 +3904,6 @@ out:
     return ret;
 }
 
-static double
-get_individual_length(segment_t *head)
-{
-    segment_t *tail = head;
-
-    while (tail->next != NULL) {
-        tail = tail->next;
-    }
-    /* TODO correct for continuous genome here? */
-    return tail->right - head->left - 1;
-}
 
 static double
 msp_get_total_gc_left(msp_t *self, label_id_t label)
@@ -3922,14 +3911,12 @@ msp_get_total_gc_left(msp_t *self, label_id_t label)
     double total = 0;
     size_t j;
     avl_node_t *node;
-    double dist;
-    const double x = (self->gc_track_length - 1) / self->gc_track_length;
 
     for (j = 0; j < self->num_populations; j++) {
         for (node = self->populations[j].ancestors[label].head; node != NULL;
              node = node->next) {
-            dist = get_individual_length((segment_t *) node->item);
-            total += 1 - pow(x, dist);
+            /* FIXME this is only giving the correct value for gene conversion maps with constant gc rate */
+            total += 1;
         }
     }
     return total;
@@ -3937,23 +3924,20 @@ msp_get_total_gc_left(msp_t *self, label_id_t label)
 
 static segment_t *
 msp_find_gc_left_individual(
-    msp_t *self, label_id_t label, double value, double *ret_distance)
+    msp_t *self, label_id_t label, double value)
 {
     double total = 0;
     size_t j;
     avl_node_t *node;
     segment_t *ind;
-    double dist;
-    const double x = (self->gc_track_length - 1) / self->gc_track_length;
 
     for (j = 0; j < self->num_populations; j++) {
         for (node = self->populations[j].ancestors[label].head; node != NULL;
              node = node->next) {
             ind = (segment_t *) node->item;
-            dist = get_individual_length(ind);
-            total += 1 - pow(x, dist);
+            /* FIXME this is only giving the correct value for gene conversion maps with constant gc rate */
+            total += 1;
             if (total >= value) {
-                *ret_distance = dist;
                 return ind;
             }
         }
@@ -3993,32 +3977,45 @@ static int MSP_WARN_UNUSED
 msp_gene_conversion_left_event(msp_t *self, label_id_t label)
 {
     int ret = 0;
-    const double track_length = self->gc_track_length;
     const double gc_left_total = msp_get_total_gc_left(self, label);
     double h = gsl_rng_uniform(self->rng) * gc_left_total;
-    double distance, u, p, logp, tl, bp;
+    double tl, bp;
     segment_t *y, *x, *alpha;
+    int num_resamplings = 0;
 
-    self->num_gc_events++;
 
-    y = msp_find_gc_left_individual(self, label, h, &distance);
+    y = msp_find_gc_left_individual(self, label, h);
     assert(y != NULL);
 
-    tl = 1.0;
-    if (track_length > 1.0) {
-        /* p is the proba of continuing the track */
-        p = (track_length - 1.0) / track_length;
-        logp = log(1.0 - 1.0 / track_length);
-        u = gsl_rng_uniform(self->rng);
-        tl = floor(1.0 + log(1.0 - u * (1.0 - pow(p, distance))) / logp);
-    }
+    /* generate track length */
+    do {
+        tl = gsl_ran_exponential(self->rng, self->gc_track_length);
+        if (self->discrete_genome) {
+            /* We want the track length to be at least 1 */
+            tl = ceil(tl);
+        }
+        if (num_resamplings == 10) {
+            ret = MSP_ERR_TRACKLEN_RESAMPLE_OVERFLOW;
+            goto out;
+        }
+        num_resamplings++;
+    } while (tl <= 0);
     assert(tl > 0);
     bp = y->left + tl;
 
-    while (y->right <= bp) {
+    while (y != NULL && y->right <= bp) {
         y = y->next;
     }
+
+    if (y == NULL){
+        //   last segment
+        // ... ==========   |   
+        //                  bp
+        self->num_noneffective_gc_events++;
+        return 0;
+    }
     assert(y != NULL);
+    self->num_gc_events++;
     x = y->prev;
 
     if (y->left < bp) {
