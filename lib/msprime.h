@@ -188,6 +188,7 @@ typedef struct _msp_t {
     rate_map_t recomb_map;
     rate_map_t gc_map;
     double gc_track_length;
+    bool gc_rate_constant;
     uint32_t num_populations;
     uint32_t num_labels;
     uint32_t ploidy;
@@ -392,6 +393,7 @@ int msp_set_gene_conversion_map(
     msp_t *self, size_t size, double *position, double *rate);
 int msp_set_gene_conversion_rate(msp_t *self, double rate);
 int msp_set_gene_conversion_track_length(msp_t *self, double track_length);
+int msp_set_gene_conversion_constant(msp_t *self, bool is_constant);
 int msp_set_discrete_genome(msp_t *self, bool is_discrete);
 int msp_set_num_populations(msp_t *self, size_t num_populations);
 int msp_set_dimensions(msp_t *self, size_t num_populations, size_t num_labels);
