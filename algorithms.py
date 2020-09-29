@@ -678,7 +678,6 @@ class Simulator:
         self.m = num_loci
         self.recomb_map = recombination_map
         self.gc_map = RateMap([0, self.m], [gene_conversion_rate, 0])
-        self.gc_rate_constant = True
         self.track_length = gene_conversion_length
         self.discrete_genome = discrete_genome
         self.migration_matrix = migration_matrix
@@ -973,44 +972,19 @@ class Simulator:
 
     def get_total_gc_left(self, label):
         gc_left_total = 0
-        if self.gc_rate_constant:
-            num_ancestors = sum(pop.get_num_ancestors() for pop in self.P)
-            mean_gc_rate = self.gc_map.mean_rate
-            gc_left_total = num_ancestors * mean_gc_rate * self.track_length
-        else:
-            mean_gc_rate = self.gc_map.mean_rate
-            for pop in self.P:
-                for _ind in pop.iter_label(label):
-                    # FIXME this is only giving the correct value
-                    # for gene conversion maps with constant gc rate
-                    # but this is faster calculated above.
-                    # Keeping this here to adapt it to nonconstant gc rates later:
-                    # We should be using the precomputed local
-                    # GC left rates when iterating over the individuals.
-                    gc_left_total += mean_gc_rate * self.track_length
+        num_ancestors = sum(pop.get_num_ancestors() for pop in self.P)
+        mean_gc_rate = self.gc_map.mean_rate
+        gc_left_total = num_ancestors * mean_gc_rate * self.track_length
         return gc_left_total
 
     def find_cleft_individual(self, label, cleft_value):
-        gc_left_total = 0
-        if self.gc_rate_constant:
-            mean_gc_rate = self.gc_map.mean_rate
-            individual_index = math.floor(
-                cleft_value / (mean_gc_rate * self.track_length)
-            )
-            for pop in self.P:
-                num_ancestors = pop.get_num_ancestors()
-                if individual_index < num_ancestors:
-                    return pop._ancestors[label][individual_index]
-                individual_index -= num_ancestors
-        else:
-            mean_gc_rate = self.gc_map.mean_rate
-            for pop in self.P:
-                for individual_index in pop.iter_label(label):
-                    # FIXME this is only giving the correct value for
-                    # gene conversion maps with constant gc rate
-                    gc_left_total += mean_gc_rate * self.track_length
-                    if gc_left_total >= cleft_value:
-                        return individual_index
+        mean_gc_rate = self.gc_map.mean_rate
+        individual_index = math.floor(cleft_value / (mean_gc_rate * self.track_length))
+        for pop in self.P:
+            num_ancestors = pop.get_num_ancestors()
+            if individual_index < num_ancestors:
+                return pop._ancestors[label][individual_index]
+            individual_index -= num_ancestors
         raise AssertionError()
 
     def hudson_simulate(self, end_time):

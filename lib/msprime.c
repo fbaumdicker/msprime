@@ -326,19 +326,11 @@ out:
     return ret;
 }
 
-int
-msp_set_gene_conversion_constant(msp_t *self, bool is_constant)
-{
-    self->gc_rate_constant = is_constant;
-    return 0;
-}
-
 /* Short-cut for msp_set_gene_conversion_map can be used in testing. */
 int
 msp_set_gene_conversion_rate(msp_t *self, double rate)
 {
     double position[] = { 0, self->sequence_length };
-    msp_set_gene_conversion_constant(self, true);
     return msp_set_gene_conversion_map(self, 1, position, &rate);
 }
 
@@ -1471,7 +1463,6 @@ msp_print_state(msp_t *self, FILE *out)
     fprintf(out, "recombination map:\n");
     rate_map_print_state(&self->recomb_map, out);
     fprintf(out, "gene_conversion_track_length = %f\n", self->gc_track_length);
-    fprintf(out, "gc_rate_constant = %d\n", self->gc_rate_constant);
     fprintf(out, "gene conversion map:\n");
     rate_map_print_state(&self->gc_map, out);
 
@@ -3914,109 +3905,61 @@ out:
 }
 
 static double
-msp_get_total_gc_left(msp_t *self, label_id_t label)
+msp_get_total_gc_left(msp_t *self)
 {
     double total = 0;
-    size_t j;
-    avl_node_t *node;
 
-    if (self->gc_rate_constant) {
-        size_t num_ancestors = msp_get_num_ancestors(self);
-        double mean_gc_rate
-            = rate_map_get_total_mass(&self->gc_map) / self->sequence_length;
-        total = (double) num_ancestors * mean_gc_rate * self->gc_track_length;
-    } else {
-        double mean_gc_rate
-            = rate_map_get_total_mass(&self->gc_map) / self->sequence_length;
-        for (j = 0; j < self->num_populations; j++) {
-            for (node = self->populations[j].ancestors[label].head; node != NULL;
-                 node = node->next) {
-                /* FIXME this is only giving the correct value for gene conversion maps
-                 * with constant gc rate */
-                /* But this case is faster calculated above. Keeping this here to adapt
-                 * it to nonconstant gc rates later */
-                /* We should be using the precomputed local GC left rates when iterating
-                 * over the individuals here. */
-                /* This iteration can be replaced by a separate Fenwick tree for gene
-                 * conversion */
-                total += mean_gc_rate * self->gc_track_length;
-            }
-        }
-    }
+    size_t num_ancestors = msp_get_num_ancestors(self);
+    double mean_gc_rate = rate_map_get_total_mass(&self->gc_map) / self->sequence_length;
+    total = (double) num_ancestors * mean_gc_rate * self->gc_track_length;
     return total;
 }
 
 static segment_t *
 msp_find_gc_left_individual(msp_t *self, label_id_t label, double value)
 {
-    double total = 0;
     size_t j, num_ancestors, individual_index;
     avl_tree_t *ancestors;
     avl_node_t *node;
     segment_t *ind;
 
-    if (self->gc_rate_constant) {
-        double mean_gc_rate
-            = rate_map_get_total_mass(&self->gc_map) / self->sequence_length;
-        individual_index
-            = (size_t) floor(value / (mean_gc_rate * self->gc_track_length));
-        for (j = 0; j < self->num_populations; j++) {
-            num_ancestors = msp_get_num_population_ancestors(self, (tsk_id_t) j);
-            if (individual_index < num_ancestors) {
-                ancestors = &self->populations[j].ancestors[label];
-                /* Choose the correct individual */
-                node = avl_at(ancestors, (unsigned int) individual_index);
-                assert(node != NULL);
-                ind = (segment_t *) node->item;
-                return ind;
-            } else {
-                individual_index -= num_ancestors;
-            }
-        }
-    } else {
-        double mean_gc_rate
-            = rate_map_get_total_mass(&self->gc_map) / self->sequence_length;
-        for (j = 0; j < self->num_populations; j++) {
-            for (node = self->populations[j].ancestors[label].head; node != NULL;
-                 node = node->next) {
-                ind = (segment_t *) node->item;
-                /* FIXME this is only giving the correct value for gene conversion maps
-                 * with constant gc rate */
-                /* But this case is faster calculated above. Keeping this here to adapt
-                 * it to nonconstant gc rates later */
-                /* We should be using the precomputed local GC left rates when iterating
-                 * over the individuals here. */
-                /* This iteration can be replaced by a separate Fenwick tree for gene
-                 * conversion */
-                total += mean_gc_rate * self->gc_track_length;
-                if (total >= value) {
-                    return ind;
-                }
-            }
+    double mean_gc_rate = rate_map_get_total_mass(&self->gc_map) / self->sequence_length;
+    individual_index = (size_t) floor(value / (mean_gc_rate * self->gc_track_length));
+    for (j = 0; j < self->num_populations; j++) {
+        num_ancestors = msp_get_num_population_ancestors(self, (tsk_id_t) j);
+        if (individual_index < num_ancestors) {
+            ancestors = &self->populations[j].ancestors[label];
+            /* Choose the correct individual */
+            node = avl_at(ancestors, (unsigned int) individual_index);
+            assert(node != NULL);
+            ind = (segment_t *) node->item;
+            return ind;
+        } else {
+            individual_index -= num_ancestors;
         }
     }
     return NULL;
 }
 
 static double
-msp_get_total_gc_left_rate(msp_t *self, label_id_t label)
+msp_get_total_gc_left_rate(msp_t *self)
 {
     double mean_gc_rate = rate_map_get_total_mass(&self->gc_map) / self->sequence_length;
     double ret = 0;
     double total_gc_left;
 
     if (mean_gc_rate > 0) {
-        total_gc_left = msp_get_total_gc_left(self, label);
+        total_gc_left = msp_get_total_gc_left(self);
         ret = total_gc_left;
     }
     return ret;
 }
 
 static int MSP_WARN_UNUSED
-msp_sample_gc_left_waiting_time(msp_t *self, label_id_t label, double *ret_t_wait)
+msp_sample_gc_left_waiting_time(msp_t *self, double *ret_t_wait)
 {
     int ret = 0;
-    double lambda = msp_get_total_gc_left_rate(self, label);
+    double lambda = msp_get_total_gc_left_rate(self);
     double t_wait = DBL_MAX;
 
     if (lambda > 0.0) {
@@ -4030,7 +3973,7 @@ static int MSP_WARN_UNUSED
 msp_gene_conversion_left_event(msp_t *self, label_id_t label)
 {
     int ret = 0;
-    const double gc_left_total = msp_get_total_gc_left(self, label);
+    const double gc_left_total = msp_get_total_gc_left(self);
     double h = gsl_rng_uniform(self->rng) * gc_left_total;
     double tl, bp;
     segment_t *y, *x, *alpha;
@@ -4174,7 +4117,7 @@ msp_run_coalescent(msp_t *self, double max_time, unsigned long max_events)
             goto out;
         }
         gc_left_t_wait = DBL_MAX;
-        ret = msp_sample_gc_left_waiting_time(self, label, &gc_left_t_wait);
+        ret = msp_sample_gc_left_waiting_time(self, &gc_left_t_wait);
         if (ret != 0) {
             goto out;
         }
