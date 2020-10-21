@@ -1109,12 +1109,14 @@ def sim_ancestry(
         See :ref:`sec_ancestry_recombination` for usage examples
         for this parameter and how it interacts with other parameters.
     :param gene_conversion_rate: The rate of gene conversion along the sequence;
-        can be either a single value (specifying a single rate over the entire
-        sequence) or an instance of :class:`RateMap`. If provided, a value
-        for ``gene_conversion_tract_length`` must also be specified.
-        See :ref:`sec_ancestry_gene_conversion` for usage examples
+        can be a single value (specifying a single rate over the entire
+        sequence). Currently an instance of :class:`RateMap` is not supported.
+        If provided, a value for ``gene_conversion_tract_length`` must also be
+        specified. See :ref:`sec_ancestry_gene_conversion` for usage examples
         for this parameter and how it interacts with other parameters.
-    :param gene_conversion_tract_length: TODO
+    :param gene_conversion_tract_length: The mean length of the gene conversion
+        tracts. Tract lengths are geometrically distributed with mean
+        ``gene_conversion_tract_length``. Needs to be greater than or equal to 1.
     """
     random_generator = _parse_random_seed(random_seed)
     record_provenance = True if record_provenance is None else record_provenance

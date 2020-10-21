@@ -215,16 +215,96 @@ Gene conversion
     import msprime
     from IPython.display import SVG
 
-GC
+Gene conversion events are defined by two parameters. 
+The rate at which gene conversion events are initiated between two
+adjacent sites and the mean of the geometrically distributed 
+gene conversion tract lengths.
+
 
 .. jupyter-execute::
 
     ts = msprime.sim_ancestry(
-        3, recombination_rate=0.1, sequence_length=10, random_seed=2)
+        3, gene_conversion_rate=0.02, gene_conversion_tract_length=1,
+        sequence_length=10, random_seed=3)
     ts.sequence_length
+    SVG(ts.draw_svg())
+
+.. jupyter-execute::
+    :hide-code:
+
+    assert 1 < ts.num_trees < 5
+    
+Continous genomes can also be used. In this case it is important to use a 
+sequence_length that corresponds to the actual number of sites considered.
+Otherwise the distribution of the tract_lengths will not be correct.
+    
+.. jupyter-execute::
+
+    ts = msprime.sim_ancestry(
+        3, gene_conversion_rate=0.02, gene_conversion_tract_length=1,
+        sequence_length=10, random_seed=3, discrete_genome=False)
+    ts.sequence_length
+    SVG(ts.draw_svg())
 
 .. jupyter-execute::
     :hide-code:
 
     assert 1 < ts.num_trees < 5
 
+Note the gene conversion tract above is not defined by one point.
+Instead, if the tract length is set to 1, the continuous distance between the start 
+and end position of a conversion will be very small.
+If the average tract length is larger than 1 the continuous tract length gets 
+larger, as shown in the next plot. However, all gene conversion events should 
+be considered to cover at least one site regardless of their continuous 
+tract length.
+    
+.. jupyter-execute::
+
+    ts = msprime.sim_ancestry(
+        3, gene_conversion_rate=0.02, gene_conversion_tract_length=1.5,
+        sequence_length=10, random_seed=3, discrete_genome=False)
+    ts.sequence_length
+    SVG(ts.draw_svg())
+
+.. jupyter-execute::
+    :hide-code:
+
+    assert 1 < ts.num_trees < 5
+
+Recombination and gene conversion at constant rates can be simulated alongside.
+
+.. jupyter-execute::
+
+    ts = msprime.sim_ancestry(
+        3, sequence_length = 100, recombination_rate=0.003,
+        gene_conversion_rate=0.002, gene_conversion_tract_length=5,
+        random_seed=6)
+    ts.sequence_length
+    SVG(ts.draw_svg())
+
+.. jupyter-execute::
+    :hide-code:
+
+    assert 1 < ts.num_trees < 6
+    
+Variable recombination rates and constant gene conversion rates can be combined.
+In this example we define a recombination map with a high recombination rate between
+site 10 and site 11 and a constant gene conversion rate with a mean tract length of 3.
+
+.. jupyter-execute::
+
+    rate_map = msprime.RateMap(
+        position=[0, 10, 11, 20],
+        rate=[0.01, 0.5, 0.01])
+    ts = msprime.sim_ancestry(
+        3, recombination_rate=rate_map,
+        gene_conversion_rate=0.01, gene_conversion_tract_length=3,
+        random_seed=8)
+    ts.sequence_length
+    SVG(ts.draw_svg())
+
+.. jupyter-execute::
+    :hide-code:
+
+    assert 1 < ts.num_trees < 5
